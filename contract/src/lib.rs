@@ -1,11 +1,13 @@
 //! A minimal hello world smart contract.
 extern crate alloc;
 
+use byteorder::{BigEndian};
+
 use oasis_contract_sdk as sdk;
-use oasis_contract_sdk_storage::cell::PublicCell;
+use oasis_contract_sdk_storage::{cell::PublicCell, map::PublicMap };
 use oasis_contract_sdk_types::address::Address;
 
-use sha2::{Sha256};
+use sha2::{Digest, Sha256};
 
 // Number of seconds from 1. 1. 1970.
 type Timestamp = u64;
@@ -38,13 +40,13 @@ pub struct Sensor {
 }
 
 /// Stores who instantiated the contract.
-const OWNER: &Address = PublicCell::new(b"owner");
+const OWNER: PublicCell<Address> = PublicCell::new(b"owner");
 
 /// Stores sensors information.
-const SENSORS: PublicMap<SensorID, Sensor> = PublicCell::new(b"sensors");
+const SENSORS: PublicMap<SensorID, Sensor> = PublicMap::new(b"sensors");
 
 /// Stores measurements of sensors.
-const MEASUREMENTS: PublicMap<(SensorID, MeasurementType, Seq), Vec<(Timestamp, i32)>> = PublicCell::new(b"measurements");
+const MEASUREMENTS: PublicMap<(SensorID, MeasurementType, Seq), Vec<(Timestamp, i32)>> = PublicMap::new(b"measurements");
 
 #[derive(Debug, thiserror::Error, sdk::Error)]
 pub enum Error {
@@ -90,14 +92,14 @@ impl Cloudy {
     /// Registers a new sensor.
     fn register_sensor<C: sdk::Context>(ctx: &mut C, sensor: Sensor) -> Result<SensorID, Error> {
         let owner = OWNER.get(ctx.public_store());
-        if owner != ctx.caller_address() {
+        if owner.into() != Some(ctx.caller_address()) {
             return Err(Error::Forbidden);
         }
 
         let mut hasher = Sha256::new();
-        hasher.update(sensor.name + ctx.caller_address());
-        let sensor_id = hasher.finalize()[..8].read_u64::<BigEndian>().unwrap();;
-        SENSORS.set(ctx.public_store(), sensor_id, sensor);
+        hasher.update(sensor.name + &ctx.caller_address().to_bech32());
+        let sensor_id = hasher.finalize()[..8].read_u64::<BigEndian>().unwrap();
+        SENSORS.insert(ctx.public_store(), sensor_id, sensor);
 
         Ok(sensor_id)
     }
@@ -116,7 +118,7 @@ impl Cloudy {
         let seq = measurements[0].timestamp / sensor.storage_granularity;
         let mut curSeqVals: Vec<(Timestamp, i32)> = MEASUREMENTS.get(ctx.public_store(), (sensor_id, measurement_type, seq)).unwrap_or(vec![]);
         let mut oldSeq = seq;
-        while m < measurements.iter() {
+        for m in measurements.iter() {
             if seq != oldSeq {
                 MEASUREMENTS.set(ctx.public_store(), (sensor_id, measurement_type, oldSeq), curSeqVals);
                 curSeqVals = MEASUREMENTS.get(ctx.public_store(), (sensor_id, measurement_type, seq)).unwrap_or(vec![]);
@@ -152,9 +154,8 @@ impl Cloudy {
             seq += 1
         }
 
-        m
+        max_temp
     }
-
 }
 
 impl sdk::Contract for Cloudy {
@@ -192,7 +193,7 @@ impl sdk::Contract for Cloudy {
         }
     }
 
-    fn query<C: sdk::Context>(_ctx: &mut C, _request: Request) -> Result<Response, Error> {
+    fn query<C: sdk::Context>(ctx: &mut C, request: Request) -> Result<Response, Error> {
         match request {
             Request::QueryMax { sensor_id, measurement_type, start, end } => {
                 match Self::query_max(ctx, sensor_id, measurement_type, start, end) {
@@ -233,8 +234,8 @@ mod test {
             &mut ctx,
             Request::RegisterSensor {
                 sensor: Sensor{
-                    name: b"esp2866_bedroom",
-                    measurement_types: vec![MeasurementType.Temperature, MeasurementType.Humidity],
+                    name: "esp2866_bedroom".to_string(),
+                    measurement_types: vec![MeasurementType::Temperature, MeasurementType::Humidity],
                     storage_granularity: 10*60, // 10 minutes
                     query_granularity: 3600*4,  // 4 hours
                 },
@@ -242,13 +243,17 @@ mod test {
         )
             .expect("RegisterSensor call should work");
 
+        let sensor_id;
+        match rsp {
+            Response::RegisterSensor { sensor_id } => (),
+            _ => panic!("calling with Request::RegisterSensor does not return Response::ReigsterSensor"),
+        }
+
         // Make sure sensor_id is correct.
         assert_eq!(
-            rsp.sensor_id != 0,
-            true
+            sensor_id != 0,
+            true,
         );
-
-        let sensor_id = rsp.sensor_id;
 
         // Send some measurements.
         let rsp = Cloudy::call(

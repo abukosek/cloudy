@@ -14,6 +14,8 @@ cbor = { version = "0.2.1", package = "oasis-cbor" }
 oasis-contract-sdk = { git = "https://github.com/oasisprotocol/oasis-sdk" }
 oasis-contract-sdk-storage = { git = "https://github.com/oasisprotocol/oasis-sdk" }
 oasis-contract-sdk-types = { git = "https://github.com/oasisprotocol/oasis-sdk" }
+byteorder = { version = "1.4.3" }
+sha2 = { version = "0.10.2" }
 
 # Third party.
 thiserror = "1.0.30"
