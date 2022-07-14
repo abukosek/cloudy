@@ -1,6 +1,6 @@
-# Cipher smart contract
+# Cloudy smart contract for Cipher ParaTime
 
-To test the contract on Intel run:
+To test the contract locally on Intel:
 
 ```
 cargo test
@@ -14,3 +14,4 @@ cargo build --target wasm32-unknown-unknown --release
 
 The contract Wasm will be located in `./target/wasm32-unknown-unknown/release`
 folder.
+

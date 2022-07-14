@@ -271,7 +271,6 @@ dependencies = [
 name = "cloudy"
 version = "0.0.0"
 dependencies = [
- "byteorder",
  "oasis-cbor",
  "oasis-contract-sdk",
  "oasis-contract-sdk-storage",
