@@ -3,3 +3,7 @@
 *.o
 *.so
 target/
+server/server
+server.key
+server.crt
+hw/esp8266/config.lua
