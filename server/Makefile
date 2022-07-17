@@ -5,9 +5,10 @@
 
 GO ?= go
 
-all: server.go
+all: server.go cipher_client.go
 	@echo "*** Building Go server..."
-	@$(GO) build server.go
+	@$(GO) get
+	@$(GO) build
 
 clean:
 	@echo "*** Cleaning up..."
