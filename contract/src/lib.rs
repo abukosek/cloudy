@@ -1,6 +1,8 @@
 //! A minimal hello world smart contract.
 extern crate alloc;
 
+use std::collections::HashMap;
+
 use oasis_contract_sdk as sdk;
 use oasis_contract_sdk_storage::{cell::PublicCell, map::PublicMap };
 use oasis_contract_sdk_types::address::Address;
@@ -16,7 +18,8 @@ type SensorID = [u8; 8];
 // Sequence number of the measurement.
 type Seq = u64;
 
-#[derive(Clone, Copy, Debug, PartialEq, cbor::Encode, cbor::Decode)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, cbor::Encode, cbor::Decode)]
+#[repr(u16)]
 pub enum MeasurementType {
     Temperature = 1,
     Humidity = 2,
@@ -77,7 +80,7 @@ pub enum Request {
     RegisterSensor { sensor: Sensor },
 
     #[cbor(rename = "submit_measurements")]
-    SubmitMeasurements { sensor_id: SensorID, measurement_type: MeasurementType, measurements: Vec<(Timestamp, i32)> },
+    SubmitMeasurements { sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<(Timestamp, i32)>> },
 
     #[cbor(rename = "query_max")]
     QueryMax { sensor_id: SensorID, measurement_type: MeasurementType, start: Timestamp, end: Timestamp },
@@ -126,27 +129,34 @@ impl Cloudy {
     }
 
     /// Add measurements to MEASUREMENTS. Measurements must be sorted by timestamp and must not exist yet in the contract.
-    fn submit_measurements<C: sdk::Context>(ctx: &mut C, sensor_id: SensorID, measurement_type: MeasurementType, measurements: Vec<(Timestamp, i32)>) -> Result<(), Error> {
+    fn submit_measurements<C: sdk::Context>(ctx: &mut C, sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<(Timestamp, i32)>>) -> Result<(), Error> {
         if measurements.len() == 0 {
             return Ok(());
         }
-        let sensor = SENSORS.get(ctx.public_store(), sensor_id).unwrap();
-        let mut seq = measurements[0].0 / sensor.storage_granularity;
-        let mut cur_seq_vals: Vec<(Timestamp, i32)> = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, measurement_type, seq)).unwrap_or(vec![]);
-        let mut old_seq = seq;
-        for m in measurements.iter() {
-            if seq != old_seq {
-                MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, measurement_type, old_seq), cur_seq_vals);
-                cur_seq_vals = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, measurement_type, seq)).unwrap_or(vec![]);
-                old_seq = seq;
+        let sensor: Sensor = SENSORS.get(ctx.public_store(), sensor_id).unwrap();
+
+        for (measurement_type, measurement_values) in &measurements {
+            if !sensor.measurement_types.contains(measurement_type) {
+                return Err(Error::BadRequest);
             }
 
-            cur_seq_vals.push(*m);
+            let mut seq = measurement_values[0].0 / sensor.storage_granularity;
+            let mut cur_seq_vals: Vec<(Timestamp, i32)> = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq)).unwrap_or(vec![]);
+            let mut old_seq = seq;
+            for m in measurement_values.iter() {
+                if seq != old_seq {
+                    MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, old_seq), cur_seq_vals);
+                    cur_seq_vals = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq)).unwrap_or(vec![]);
+                    old_seq = seq;
+                }
 
-            seq = m.0 / sensor.storage_granularity;
-        }
-        if cur_seq_vals.len() > 0 {
-            MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, measurement_type, seq), cur_seq_vals);
+                cur_seq_vals.push(*m);
+
+                seq = m.0 / sensor.storage_granularity;
+            }
+            if cur_seq_vals.len() > 0 {
+                MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq), cur_seq_vals);
+            }
         }
 
         Ok(())
@@ -199,8 +209,8 @@ impl sdk::Contract for Cloudy {
                     Err(err) => Err(err),
                 }
             }
-            Request::SubmitMeasurements { sensor_id, measurement_type, measurements } => {
-                match Self::submit_measurements(ctx, sensor_id, measurement_type, measurements) {
+            Request::SubmitMeasurements { sensor_id, measurements } => {
+                match Self::submit_measurements(ctx, sensor_id, measurements) {
                     Ok(()) => Ok(Response::Empty),
                     Err(e) => Err(e),
                 }
@@ -271,8 +281,9 @@ mod test {
             &mut ctx,
             Request::SubmitMeasurements {
                 sensor_id: sensor_id,
-                measurement_type: MeasurementType::Temperature,
-                measurements: vec![(1657541274, 2350), (1657541284, 2360), (1657541294, 2350)],
+                measurements: HashMap::from([
+                    (MeasurementType::Temperature, vec![(1657541274, 2350), (1657541284, 2360), (1657541294, 2350)])
+                ]),
             },
         ).expect("SubmitMeasurements should work");
 
