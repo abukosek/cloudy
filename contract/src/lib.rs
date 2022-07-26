@@ -26,6 +26,7 @@ pub enum MeasurementType {
     Co2 = 3,
 }
 
+// Unique key bucket for storing measurements.
 type MeasurementKey = [u8; 24];
 
 fn to_measurement_key(id: SensorID, t: MeasurementType, seq: Seq) -> MeasurementKey {
@@ -34,6 +35,15 @@ fn to_measurement_key(id: SensorID, t: MeasurementType, seq: Seq) -> Measurement
         Ok(r) => r,
         _ => panic!("Failed to concatenate {:?}, {}, {}", id, t as u64, seq),
     }
+}
+
+#[derive(Clone, Copy, Debug, cbor::Encode, cbor::Decode)]
+pub struct MeasurementValue {
+    /// Timestamp of the measurement.
+    timestamp: Timestamp,
+
+    // Measurement-specific value.
+    value: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, cbor::Encode, cbor::Decode)]
@@ -58,7 +68,7 @@ const OWNER: PublicCell<Address> = PublicCell::new(b"owner");
 const SENSORS: PublicMap<SensorID, Sensor> = PublicMap::new(b"sensors");
 
 /// Stores measurements of sensors.
-const MEASUREMENTS: PublicMap<MeasurementKey, Vec<(Timestamp, i32)>> = PublicMap::new(b"measurements");
+const MEASUREMENTS: PublicMap<MeasurementKey, Vec<MeasurementValue>> = PublicMap::new(b"measurements");
 
 #[derive(Debug, thiserror::Error, sdk::Error)]
 pub enum Error {
@@ -80,7 +90,7 @@ pub enum Request {
     RegisterSensor { sensor: Sensor },
 
     #[cbor(rename = "submit_measurements")]
-    SubmitMeasurements { sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<(Timestamp, i32)>> },
+    SubmitMeasurements { sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<MeasurementValue>> },
 
     #[cbor(rename = "query_max")]
     QueryMax { sensor_id: SensorID, measurement_type: MeasurementType, start: Timestamp, end: Timestamp },
@@ -129,7 +139,7 @@ impl Cloudy {
     }
 
     /// Add measurements to MEASUREMENTS. Measurements must be sorted by timestamp and must not exist yet in the contract.
-    fn submit_measurements<C: sdk::Context>(ctx: &mut C, sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<(Timestamp, i32)>>) -> Result<(), Error> {
+    fn submit_measurements<C: sdk::Context>(ctx: &mut C, sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<MeasurementValue>>) -> Result<(), Error> {
         if measurements.len() == 0 {
             return Ok(());
         }
@@ -140,8 +150,8 @@ impl Cloudy {
                 return Err(Error::BadRequest);
             }
 
-            let mut seq = measurement_values[0].0 / sensor.storage_granularity;
-            let mut cur_seq_vals: Vec<(Timestamp, i32)> = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq)).unwrap_or(vec![]);
+            let mut seq = measurement_values[0].timestamp / sensor.storage_granularity;
+            let mut cur_seq_vals: Vec<MeasurementValue> = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq)).unwrap_or(vec![]);
             let mut old_seq = seq;
             for m in measurement_values.iter() {
                 if seq != old_seq {
@@ -152,7 +162,7 @@ impl Cloudy {
 
                 cur_seq_vals.push(*m);
 
-                seq = m.0 / sensor.storage_granularity;
+                seq = m.timestamp / sensor.storage_granularity;
             }
             if cur_seq_vals.len() > 0 {
                 MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq), cur_seq_vals);
@@ -173,8 +183,8 @@ impl Cloudy {
         let mut max_temp: i32 = i32::MIN;
         while seq < max_seq {
             for m in MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, measurement_type, seq)).unwrap_or(vec![]) {
-                if m.1 > max_temp {
-                    max_temp = m.1
+                if m.value > max_temp {
+                    max_temp = m.value
                 }
             }
             seq += 1
@@ -277,14 +287,28 @@ mod test {
         );
 
         // Send some measurements.
+        let req = Request::SubmitMeasurements {
+            sensor_id: sensor_id,
+            measurements: HashMap::from([
+                (MeasurementType::Temperature, vec![
+                    MeasurementValue{
+                        timestamp: 1657541274,
+                        value: 2350,
+                    },
+                    MeasurementValue{
+                        timestamp: 1657541284,
+                        value: 2360,
+                    },
+                    MeasurementValue{
+                        timestamp: 1657541294,
+                        value: 2350,
+                    }
+                ])
+            ]),
+        };
         Cloudy::call(
             &mut ctx,
-            Request::SubmitMeasurements {
-                sensor_id: sensor_id,
-                measurements: HashMap::from([
-                    (MeasurementType::Temperature, vec![(1657541274, 2350), (1657541284, 2360), (1657541294, 2350)])
-                ]),
-            },
+            req,
         ).expect("SubmitMeasurements should work");
 
         // Query for maximum temperature.

@@ -53,8 +53,6 @@ type QueryMaxResponse struct {
 }
 
 type MeasurementValue struct {
-	_ struct{} `json:",toarray"`
-
-	Timestamp Timestamp
-	Value     uint32
+	Timestamp Timestamp `json:"timestamp"`
+	Value     uint32    `json:"value"`
 }
