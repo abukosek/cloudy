@@ -6,6 +6,7 @@ from the sensors, batches it, and submits it to the Cipher smart contract.
 ## Running Cipher client e2e tests
 
 Prerequisites:
+
 - Download and extract Oasis Core 22.1.8 to `/oasis_core`,
 - Download [Cipher paratime] source to `/cipher-paratime` and compile it in
   release mode `cargo build --release`,
@@ -15,6 +16,7 @@ Prerequisites:
 To run Cipher e2e tests locally:
 
 1. Spin up Cipher locally with prepopulated Alice's account by running:
+
    ```shell
    rm -rf /tmp/cipher-test; mkdir -p /tmp/cipher-test
    /oasis-core/oasis-net-runner \
@@ -28,6 +30,7 @@ To run Cipher e2e tests locally:
      --basedir.no_temp_dir
    ```
 2. Register runtime locally with oasis CLI:
+
    ```shell
    oasis network add-local localhost unix:/tmp/cipher-test/net-runner/network/client-0/internal.sock
    oasis paratime add localhost cipher 8000000000000000000000000000000000000000000000000000000000000000
@@ -44,7 +47,7 @@ To run Cipher e2e tests locally:
    oasis contracts instantiate 0 "instantiate: {}" --account test:alice --network localhost --gas-limit 100000
    # Instance ID should be printed in a while.
    ```
-5. Run the tests with
+5. Move back to `server` folder and tests with
    ```shell
    go test ./...
    ```
