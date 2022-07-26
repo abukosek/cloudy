@@ -11,12 +11,6 @@ return {
 	-- Unique sensor name.
 	SENSOR_NAME = "test_sensor",
 
-	-- TLS certificate for sensor authentication.
-	-- TODO: CLIENT_CERT = [[]],
-
-	-- Sensor's private key.
-	-- TODO: CLIENT_PRIVATE_KEY = [[]],
-
 
 
 	--

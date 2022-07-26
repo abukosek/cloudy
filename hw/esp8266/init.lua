@@ -139,7 +139,7 @@ function sensor_report(_cron_entry)
 	end
 
 	-- Encode readings into JSON, terminate with LF.
-	local json = sjson.encode(data)..string.char(10)
+	local json = sjson.encode(data) .. string.char(10)
 
 	-- Print encoded JSON for debugging.
 	print(json)
@@ -177,7 +177,14 @@ function tls_init()
 	tls.cert.verify(config.SERVER_CERT)
 
 	-- Enable client authentication.
-	-- TODO: tls.cert.auth(config.CLIENT_CERT, config.CLIENT_PRIVATE_KEY)
+	--
+	-- XXX: This is disabled because it doesn't work.
+	-- NodeMCU only supports RSA for client authentication and it keeps running
+	-- out of memory (not even 512-bit keys work).  Until NodeMCU fixes their
+	-- implementation to also support using EC for client authentication, this
+	-- is basically useless.
+	--
+	-- tls.cert.auth(config.CLIENT_CERT, config.CLIENT_PRIVATE_KEY)
 
 	-- Connect to the server.
 	SRV = tls.createConnection()
@@ -216,14 +223,14 @@ function time_setup()
 	local sync_success =
 		function(sec, usec, serv, info)
 			local t = rtctime.epoch2cal(sec)
-			local correction
+			local correction = "Correction: "
 
 			if     info["offset_s"]  ~= nil then
-				correction = string.format("Correction: %d s", info.offset_s)
+				correction = correction .. string.format("%d s", info.offset_s)
 			elseif info["offset_us"] ~= nil then
-				correction = string.format("Correction: %d us", info.offset_us)
+				correction = correction .. string.format("%d us", info.offset_us)
 			else
-				correction = "Correction: none"
+				correction = "none"
 			end
 
 			print(string.format(
@@ -248,7 +255,7 @@ function time_setup()
 			else
 				err = "Unknown error"
 			end
-			print(string.format("[SNTP] Sync failed: %s.", err))
+			print("[SNTP] Sync failed: " .. err)
 		end
 
 	sntp.sync(config.NTP_ADDR, sync_success, sync_failure, 1)
@@ -271,6 +278,7 @@ function after_wifi_connects()
 end
 
 
+node.egc.setmode(node.egc.ALWAYS, 0)
 sensor_setup()
 wifi_connect(config.WIFI_SSID, config.WIFI_PASS)
 wifi_wait4ip(after_wifi_connects)
