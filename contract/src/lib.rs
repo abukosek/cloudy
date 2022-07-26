@@ -21,8 +21,11 @@ type Seq = u64;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, cbor::Encode, cbor::Decode)]
 #[repr(u16)]
 pub enum MeasurementType {
+    #[cbor(rename = 1)]
     Temperature = 1,
+    #[cbor(rename = 2)]
     Humidity = 2,
+    #[cbor(rename = 3)]
     Co2 = 3,
 }
 
