@@ -4,7 +4,7 @@ extern crate alloc;
 use std::collections::HashMap;
 
 use oasis_contract_sdk as sdk;
-use oasis_contract_sdk_storage::{cell::PublicCell, map::PublicMap };
+use oasis_contract_sdk_storage::{cell::PublicCell, map::PublicMap};
 use oasis_contract_sdk_types::address::Address;
 
 use sha2::{Digest, Sha256};
@@ -24,9 +24,15 @@ pub enum MeasurementType {
     #[cbor(rename = 1)]
     Temperature = 1,
     #[cbor(rename = 2)]
-    Humidity = 2,
+    Pressure = 2,
     #[cbor(rename = 3)]
-    Co2 = 3,
+    Humidity = 3,
+    #[cbor(rename = 4)]
+    CO2 = 4,
+    #[cbor(rename = 5)]
+    Illuminance = 5,
+    #[cbor(rename = 6)]
+    RSSI = 6,
 }
 
 // Unique key bucket for storing measurements.
@@ -34,7 +40,10 @@ type MeasurementKey = [u8; 24];
 
 fn to_measurement_key(id: SensorID, t: MeasurementType, seq: Seq) -> MeasurementKey {
     // XXX: Only equal-size arrays can be concatenated.
-    match [id, (t as u64).to_be_bytes(), seq.to_be_bytes()].concat().try_into() {
+    match [id, (t as u64).to_be_bytes(), seq.to_be_bytes()]
+        .concat()
+        .try_into()
+    {
         Ok(r) => r,
         _ => panic!("Failed to concatenate {:?}, {}, {}", id, t as u64, seq),
     }
@@ -71,7 +80,8 @@ const OWNER: PublicCell<Address> = PublicCell::new(b"owner");
 const SENSORS: PublicMap<SensorID, Sensor> = PublicMap::new(b"sensors");
 
 /// Stores measurements of sensors.
-const MEASUREMENTS: PublicMap<MeasurementKey, Vec<MeasurementValue>> = PublicMap::new(b"measurements");
+const MEASUREMENTS: PublicMap<MeasurementKey, Vec<MeasurementValue>> =
+    PublicMap::new(b"measurements");
 
 #[derive(Debug, thiserror::Error, sdk::Error)]
 pub enum Error {
@@ -87,16 +97,24 @@ pub enum Error {
 #[derive(Clone, Debug, cbor::Encode, cbor::Decode)]
 pub enum Request {
     #[cbor(rename = "instantiate")]
-    Instantiate { },
+    Instantiate {},
 
     #[cbor(rename = "register_sensor")]
     RegisterSensor { sensor: Sensor },
 
     #[cbor(rename = "submit_measurements")]
-    SubmitMeasurements { sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<MeasurementValue>> },
+    SubmitMeasurements {
+        sensor_id: SensorID,
+        measurements: HashMap<MeasurementType, Vec<MeasurementValue>>,
+    },
 
     #[cbor(rename = "query_max")]
-    QueryMax { sensor_id: SensorID, measurement_type: MeasurementType, start: Timestamp, end: Timestamp },
+    QueryMax {
+        sensor_id: SensorID,
+        measurement_type: MeasurementType,
+        start: Timestamp,
+        end: Timestamp,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, cbor::Encode, cbor::Decode)]
@@ -105,7 +123,7 @@ pub enum Response {
     RegisterSensor { sensor_id: SensorID },
 
     #[cbor(rename = "query_max")]
-    QueryMax { max: i32},
+    QueryMax { max: i32 },
 
     #[cbor(rename = "empty")]
     Empty,
@@ -138,11 +156,15 @@ impl Cloudy {
 
     // TODO: Rewrite to macro.
     fn timestamp_floor(granularity: u64, start: Timestamp) -> Timestamp {
-        return start - (start%granularity);
+        return start - (start % granularity);
     }
 
     /// Add measurements to MEASUREMENTS. Measurements must be sorted by timestamp and must not exist yet in the contract.
-    fn submit_measurements<C: sdk::Context>(ctx: &mut C, sensor_id: SensorID, measurements: HashMap<MeasurementType, Vec<MeasurementValue>>) -> Result<(), Error> {
+    fn submit_measurements<C: sdk::Context>(
+        ctx: &mut C,
+        sensor_id: SensorID,
+        measurements: HashMap<MeasurementType, Vec<MeasurementValue>>,
+    ) -> Result<(), Error> {
         if measurements.len() == 0 {
             return Ok(());
         }
@@ -154,12 +176,26 @@ impl Cloudy {
             }
 
             let mut seq = measurement_values[0].timestamp / sensor.storage_granularity;
-            let mut cur_seq_vals: Vec<MeasurementValue> = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq)).unwrap_or(vec![]);
+            let mut cur_seq_vals: Vec<MeasurementValue> = MEASUREMENTS
+                .get(
+                    ctx.public_store(),
+                    to_measurement_key(sensor_id, *measurement_type, seq),
+                )
+                .unwrap_or(vec![]);
             let mut old_seq = seq;
             for m in measurement_values.iter() {
                 if seq != old_seq {
-                    MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, old_seq), cur_seq_vals);
-                    cur_seq_vals = MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq)).unwrap_or(vec![]);
+                    MEASUREMENTS.insert(
+                        ctx.public_store(),
+                        to_measurement_key(sensor_id, *measurement_type, old_seq),
+                        cur_seq_vals,
+                    );
+                    cur_seq_vals = MEASUREMENTS
+                        .get(
+                            ctx.public_store(),
+                            to_measurement_key(sensor_id, *measurement_type, seq),
+                        )
+                        .unwrap_or(vec![]);
                     old_seq = seq;
                 }
 
@@ -168,7 +204,11 @@ impl Cloudy {
                 seq = m.timestamp / sensor.storage_granularity;
             }
             if cur_seq_vals.len() > 0 {
-                MEASUREMENTS.insert(ctx.public_store(), to_measurement_key(sensor_id, *measurement_type, seq), cur_seq_vals);
+                MEASUREMENTS.insert(
+                    ctx.public_store(),
+                    to_measurement_key(sensor_id, *measurement_type, seq),
+                    cur_seq_vals,
+                );
             }
         }
 
@@ -176,16 +216,32 @@ impl Cloudy {
     }
 
     /// Compute the maximum.
-    fn compute_max<C: sdk::Context>(ctx: &mut C, sensor_id: SensorID, measurement_type: MeasurementType, start: Timestamp, end: Timestamp) -> i32 {
+    fn compute_max<C: sdk::Context>(
+        ctx: &mut C,
+        sensor_id: SensorID,
+        measurement_type: MeasurementType,
+        start: Timestamp,
+        end: Timestamp,
+    ) -> i32 {
         let sensor = SENSORS.get(ctx.public_store(), sensor_id).unwrap();
         let ts_start = Self::timestamp_floor(sensor.query_granularity, start);
-        let ts_end = Self::timestamp_floor(sensor.query_granularity, end)+sensor.query_granularity;
-        let mut seq = Self::timestamp_floor(sensor.storage_granularity, ts_start)/sensor.storage_granularity;
-        let max_seq = (Self::timestamp_floor(sensor.storage_granularity, ts_end)+sensor.storage_granularity)/sensor.storage_granularity;
+        let ts_end =
+            Self::timestamp_floor(sensor.query_granularity, end) + sensor.query_granularity;
+        let mut seq = Self::timestamp_floor(sensor.storage_granularity, ts_start)
+            / sensor.storage_granularity;
+        let max_seq = (Self::timestamp_floor(sensor.storage_granularity, ts_end)
+            + sensor.storage_granularity)
+            / sensor.storage_granularity;
 
         let mut max_temp: i32 = i32::MIN;
         while seq < max_seq {
-            for m in MEASUREMENTS.get(ctx.public_store(), to_measurement_key(sensor_id, measurement_type, seq)).unwrap_or(vec![]) {
+            for m in MEASUREMENTS
+                .get(
+                    ctx.public_store(),
+                    to_measurement_key(sensor_id, measurement_type, seq),
+                )
+                .unwrap_or(vec![])
+            {
                 if m.value > max_temp {
                     max_temp = m.value
                 }
@@ -214,30 +270,33 @@ impl sdk::Contract for Cloudy {
 
     fn call<C: sdk::Context>(ctx: &mut C, request: Request) -> Result<Response, Error> {
         match request {
-            Request::RegisterSensor { sensor } => {
-                match Self::register_sensor(ctx, sensor) {
-                    Ok(sensor_id) => Ok(Response::RegisterSensor {
-                            sensor_id: sensor_id,
-                        }),
-                    Err(err) => Err(err),
-                }
-            }
-            Request::SubmitMeasurements { sensor_id, measurements } => {
-                match Self::submit_measurements(ctx, sensor_id, measurements) {
-                    Ok(()) => Ok(Response::Empty),
-                    Err(e) => Err(e),
-                }
-            }
+            Request::RegisterSensor { sensor } => match Self::register_sensor(ctx, sensor) {
+                Ok(sensor_id) => Ok(Response::RegisterSensor {
+                    sensor_id: sensor_id,
+                }),
+                Err(err) => Err(err),
+            },
+            Request::SubmitMeasurements {
+                sensor_id,
+                measurements,
+            } => match Self::submit_measurements(ctx, sensor_id, measurements) {
+                Ok(()) => Ok(Response::Empty),
+                Err(e) => Err(e),
+            },
             _ => Err(Error::BadRequest),
         }
     }
 
     fn query<C: sdk::Context>(ctx: &mut C, request: Request) -> Result<Response, Error> {
         match request {
-            Request::QueryMax { sensor_id, measurement_type, start, end } =>
-                Ok(Response::QueryMax {
-                    max: Self::compute_max(ctx, sensor_id, measurement_type, start, end),
-                }),
+            Request::QueryMax {
+                sensor_id,
+                measurement_type,
+                start,
+                end,
+            } => Ok(Response::QueryMax {
+                max: Self::compute_max(ctx, sensor_id, measurement_type, start, end),
+            }),
             _ => Err(Error::BadRequest),
         }
     }
@@ -257,62 +316,57 @@ mod test {
         let mut ctx: MockContext = ExecutionContext::default().into();
 
         // Instantiate the contract.
-        Cloudy::instantiate(
-            &mut ctx,
-            Request::Instantiate {
-            },
-        )
-            .expect("instantiation should work");
+        Cloudy::instantiate(&mut ctx, Request::Instantiate {}).expect("instantiation should work");
 
         // Register sensor.
         let rsp = Cloudy::call(
             &mut ctx,
             Request::RegisterSensor {
-                sensor: Sensor{
+                sensor: Sensor {
                     name: "esp2866_bedroom".to_string(),
-                    measurement_types: vec![MeasurementType::Temperature, MeasurementType::Humidity],
-                    storage_granularity: 10*60, // 10 minutes
-                    query_granularity: 3600*4,  // 4 hours
+                    measurement_types: vec![
+                        MeasurementType::Temperature,
+                        MeasurementType::Humidity,
+                    ],
+                    storage_granularity: 10 * 60, // 10 minutes
+                    query_granularity: 3600 * 4,  // 4 hours
                 },
             },
         )
-            .expect("RegisterSensor call should work");
+        .expect("RegisterSensor call should work");
 
         let sensor_id = match rsp {
             Response::RegisterSensor { sensor_id } => sensor_id,
-            _ => panic!("calling with Request::RegisterSensor does not return Response::ReigsterSensor"),
+            _ => panic!(
+                "calling with Request::RegisterSensor does not return Response::ReigsterSensor"
+            ),
         };
 
         // Make sure sensor_id is correct.
-        assert_ne!(
-            sensor_id,
-            [0,0,0,0,0,0,0,0],
-        );
+        assert_ne!(sensor_id, [0, 0, 0, 0, 0, 0, 0, 0],);
 
         // Send some measurements.
         let req = Request::SubmitMeasurements {
             sensor_id: sensor_id,
-            measurements: HashMap::from([
-                (MeasurementType::Temperature, vec![
-                    MeasurementValue{
+            measurements: HashMap::from([(
+                MeasurementType::Temperature,
+                vec![
+                    MeasurementValue {
                         timestamp: 1657541274,
                         value: 2350,
                     },
-                    MeasurementValue{
+                    MeasurementValue {
                         timestamp: 1657541284,
                         value: 2360,
                     },
-                    MeasurementValue{
+                    MeasurementValue {
                         timestamp: 1657541294,
                         value: 2350,
-                    }
-                ])
-            ]),
+                    },
+                ],
+            )]),
         };
-        Cloudy::call(
-            &mut ctx,
-            req,
-        ).expect("SubmitMeasurements should work");
+        Cloudy::call(&mut ctx, req).expect("SubmitMeasurements should work");
 
         // Query for maximum temperature.
         let rsp = Cloudy::query(
@@ -324,14 +378,9 @@ mod test {
                 end: 1657550000,
             },
         )
-            .expect("QueryMax should work");
+        .expect("QueryMax should work");
 
         // Make sure max is correct.
-        assert_eq!(
-            rsp,
-            Response::QueryMax {
-                max: 2360,
-            }
-        );
+        assert_eq!(rsp, Response::QueryMax { max: 2360 });
     }
 }

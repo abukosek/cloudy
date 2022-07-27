@@ -2,8 +2,11 @@ package main
 
 const (
 	Temperature MeasurementType = 1
-	Humidity    MeasurementType = 2
-	Co2         MeasurementType = 3
+	Pressure    MeasurementType = 2
+	Humidity    MeasurementType = 3
+	CO2         MeasurementType = 4
+	Illuminance MeasurementType = 5
+	RSSI        MeasurementType = 6
 )
 
 type MeasurementType uint16
@@ -49,10 +52,10 @@ type QueryMaxRequest struct {
 }
 
 type QueryMaxResponse struct {
-	Max uint32 `json:"max"`
+	Max int32 `json:"max"`
 }
 
 type MeasurementValue struct {
 	Timestamp Timestamp `json:"timestamp"`
-	Value     uint32    `json:"value"`
+	Value     int32     `json:"value"`
 }

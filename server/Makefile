@@ -5,7 +5,7 @@
 
 GO ?= go
 
-all: server.go cipher_client.go
+all: server.go cipher_client.go types.go
 	@echo "*** Building Go server..."
 	@$(GO) get
 	@$(GO) build
@@ -24,5 +24,5 @@ clean-key:
 
 fmt:
 	@echo "*** Formatting source files..."
-	@$(GO) fmt server.go
+	@$(GO) fmt ./...
 

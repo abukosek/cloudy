@@ -107,7 +107,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 	if err != nil {
 		panic(fmt.Sprintf("can't call query_max: %s", err))
 	}
-	var maxTemp uint32
+	var maxTemp int32
 	if err = cbor.Unmarshal(result, &maxTemp); err != nil {
 		panic(fmt.Sprintf("can't decode query_max_response: %s", err))
 	}

@@ -32,6 +32,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// TODO: Load sensor database and register sensors or verify if their
+	// certificates match to the registered ones.  This step should also get
+	// sensor IDs.
+
 	// Start listening for connections.
 	config := &tls.Config{Certificates: []tls.Certificate{crt}}
 	server, err := tls.Listen("tcp", ":42424", config)
@@ -102,9 +106,83 @@ func batchHandler(dataCh <-chan string) {
 
 			fmt.Fprintf(os.Stderr, "*** Submitting batch with %d sensor readings.\n", len(batch))
 
-			// Submit batch and reset.
-			// TODO: Submit.
+			// Submit batch.
+			if err := convertBatchAndSubmit(batch); err != nil {
+				fmt.Fprintf(os.Stderr, "ERROR: Failed to submit batch: %v\n", err)
+				continue
+				// Leave the contents of the batch for next time.
+			}
+
+			// Reset batch if submission was successful.
 			batch = make([]SensorData, 0)
 		}
 	}
+}
+
+func convertBatchAndSubmit(batch []SensorData) error {
+	// Sensor name -> SubmitMeasurementsRequest.
+	sensors := make(map[string]SubmitMeasurementsRequest)
+
+	for _, b := range batch {
+		sensor, exists := sensors[b.Name]
+		if !exists {
+			sensors[b.Name] = SubmitMeasurementsRequest{
+				// TODO: matevz: SensorID
+				Measurements: make(map[MeasurementType][]MeasurementValue),
+			}
+			sensor = sensors[b.Name]
+		}
+
+		sensor.Measurements[RSSI] = append(sensor.Measurements[RSSI], MeasurementValue{
+			Timestamp: Timestamp(b.Timestamp),
+			Value:     int32(b.RSSI),
+		})
+
+		if b.Pressure > 0 {
+			sensor.Measurements[Pressure] = append(sensor.Measurements[Pressure], MeasurementValue{
+				Timestamp: Timestamp(b.Timestamp),
+				Value:     int32(b.Pressure),
+			})
+
+			// If we have a valid pressure reading, we also have a valid
+			// temperature reading.
+			sensor.Measurements[Temperature] = append(sensor.Measurements[Temperature], MeasurementValue{
+				Timestamp: Timestamp(b.Timestamp),
+				Value:     b.Temperature,
+			})
+		}
+
+		if b.Humidity > 0 {
+			sensor.Measurements[Humidity] = append(sensor.Measurements[Humidity], MeasurementValue{
+				Timestamp: Timestamp(b.Timestamp),
+				Value:     int32(b.Humidity),
+			})
+		}
+
+		if b.CO2 > 0 {
+			sensor.Measurements[CO2] = append(sensor.Measurements[CO2], MeasurementValue{
+				Timestamp: Timestamp(b.Timestamp),
+				Value:     int32(b.CO2),
+			})
+		}
+
+		if b.Illuminance > 0 {
+			sensor.Measurements[Illuminance] = append(sensor.Measurements[Illuminance], MeasurementValue{
+				Timestamp: Timestamp(b.Timestamp),
+				Value:     int32(b.Illuminance),
+			})
+		}
+	}
+
+	// Debug.
+	j, _ := json.Marshal(sensors)
+	fmt.Printf("PREPARED BATCH: %s\n", j)
+
+	// Now submit the requests.
+	for _, s := range sensors {
+		// TODO: matevz.
+		_ = s
+	}
+
+	return nil
 }
