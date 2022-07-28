@@ -26,3 +26,7 @@ fmt:
 	@echo "*** Formatting source files..."
 	@$(GO) fmt ./...
 
+tidy:
+	@echo "*** Tidying up go.mod..."
+	@$(GO) mod tidy -compat=1.17
+

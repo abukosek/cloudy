@@ -5,9 +5,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // How often to submit batch of sensor readings to the blockchain?
@@ -24,6 +27,18 @@ type SensorData struct {
 	Illuminance uint16 `json:"Ev,omitempty"`  // lux
 }
 
+type SensorDatabase struct {
+	Sensors []string
+}
+
+var (
+	// Sensor database.
+	SensorDB SensorDatabase
+
+	// Map of sensor name -> ID.
+	KnownSensors map[string]SensorID
+)
+
 func main() {
 	// Load server's private key and certificate.
 	crt, err := tls.LoadX509KeyPair("server.crt", "server.key")
@@ -32,9 +47,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: Load sensor database and register sensors or verify if their
-	// certificates match to the registered ones.  This step should also get
-	// sensor IDs.
+	// Load sensor database.
+	sensorDBRaw, err := ioutil.ReadFile("sensor-db.yaml")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to read sensor database: %v\n", err)
+		os.Exit(1)
+	}
+	err = yaml.Unmarshal(sensorDBRaw, &SensorDB)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to parse sensor database: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "*** Sensor database contains %d sensor(s).\n", len(SensorDB.Sensors))
+
+	// Check if the sensors are already registered, otherwise register them.
+	// Also obtain sensor IDs and set-up a map of sensor name to ID.
+	for _, sensor := range SensorDB.Sensors {
+		// TODO: matevz: Register if needed and obtain sensor ID.
+		KnownSensors[sensor] = SensorID{}
+	}
+
+	// TODO: When client authentication is implemented, also verify if the
+	// sensor certificates match those stored on the blockchain.
 
 	// Start listening for connections.
 	config := &tls.Config{Certificates: []tls.Certificate{crt}}
@@ -96,9 +131,16 @@ func batchHandler(dataCh <-chan string) {
 				continue
 			}
 
-			// Batch for sending.
+			if _, ok := KnownSensors[d.Name]; !ok {
+				// Discard data from sensor that's not in our DB.
+				fmt.Fprintf(os.Stderr, "*** Ignoring data from sensor not configured in sensor DB: %s\n", d.Name)
+				continue
+			}
+
+			// Batch data for sending.
 			batch = append(batch, d)
 		case <-submitBatchTicker.C:
+			// Only submit batch if there's anything in it.
 			if len(batch) == 0 {
 				// TODO: Maybe also add a minimum batch size?
 				continue
@@ -127,7 +169,7 @@ func convertBatchAndSubmit(batch []SensorData) error {
 		sensor, exists := sensors[b.Name]
 		if !exists {
 			sensors[b.Name] = SubmitMeasurementsRequest{
-				// TODO: matevz: SensorID
+				SensorID:     KnownSensors[b.Name],
 				Measurements: make(map[MeasurementType][]MeasurementValue),
 			}
 			sensor = sensors[b.Name]

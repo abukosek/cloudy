@@ -5,7 +5,9 @@ go 1.17
 require (
 	github.com/oasisprotocol/oasis-core/go v0.2201.8
 	github.com/oasisprotocol/oasis-sdk/client-sdk/go v0.2.1-0.20220621104653-a0da10b705b9
+	github.com/stretchr/testify v1.7.4
 	google.golang.org/grpc v1.47.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -51,7 +53,6 @@ require (
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.10.1 // indirect
-	github.com/stretchr/testify v1.7.4 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/tendermint/tendermint v0.34.15 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -67,5 +68,4 @@ require (
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.66.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
