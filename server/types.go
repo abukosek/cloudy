@@ -1,5 +1,7 @@
 package main
 
+import "encoding/hex"
+
 const (
 	Temperature MeasurementType = 1
 	Pressure    MeasurementType = 2
@@ -7,6 +9,10 @@ const (
 	CO2         MeasurementType = 4
 	Illuminance MeasurementType = 5
 	RSSI        MeasurementType = 6
+)
+
+var (
+	EmptyResponseRaw, _ = hex.DecodeString("65656d707479")
 )
 
 type MeasurementType uint16
@@ -29,6 +35,7 @@ type Request struct {
 type Response struct {
 	RegisterSensor *RegisterSensorResponse `json:"register_sensor,omitempty"`
 	QueryMax       *QueryMaxResponse       `json:"query_max,omitempty"`
+	Empty          *EmptyResponse          `json:"empty,omitempty"`
 }
 
 type RegisterSensorRequest struct {
@@ -58,4 +65,7 @@ type QueryMaxResponse struct {
 type MeasurementValue struct {
 	Timestamp Timestamp `json:"timestamp"`
 	Value     int32     `json:"value"`
+}
+
+type EmptyResponse struct {
 }

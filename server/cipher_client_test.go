@@ -2,17 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/oasisprotocol/oasis-core/go/common"
-	"github.com/oasisprotocol/oasis-core/go/common/cbor"
 	cmnGrpc "github.com/oasisprotocol/oasis-core/go/common/grpc"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/contracts"
 	sdkTesting "github.com/oasisprotocol/oasis-sdk/client-sdk/go/testing"
-	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/types"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -26,9 +23,9 @@ var (
 	// Cipher runtime ID.
 	runtimeID = "8000000000000000000000000000000000000000000000000000000000000000"
 	// First deployed contract.
-	instanceID = 0
+	instanceID = contracts.InstanceID(1)
 	// Signer.
-	signer = sdkTesting.Alice
+	signer = sdkTesting.Alice.Signer
 )
 
 // E2E test. Requires already instantiated cloudy smart contract.
@@ -36,18 +33,14 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 	require := require.New(t)
 
 	var rtID common.Namespace
-	if err := rtID.UnmarshalHex(runtimeID); err != nil {
-		panic(fmt.Sprintf("can't decode runtime ID: %s", err))
-	}
+	err := rtID.UnmarshalHex(runtimeID)
+	require.NoError(err, "runtime ID decoding should succeed")
 
 	conn, err := cmnGrpc.Dial(socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		panic(fmt.Sprintf("can't connect to socket: %s", err))
-	}
+	require.NoError(err, "connection to socket should succeed")
 	defer conn.Close()
 
 	rtc := client.New(conn, rtID)
-	cc := contracts.NewV1(rtc)
 
 	ctx, cancelFn := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancelFn()
@@ -63,15 +56,9 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			},
 		},
 	}
-	txb := cc.Call(contracts.InstanceID(instanceID), req, []types.BaseUnits{})
-	rawResult, err := SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
-	var result Response
-	if err != nil {
-		panic(fmt.Sprintf("can't call register_sensor: %s", err))
-	}
-	if err = cbor.Unmarshal(rawResult, &result); err != nil {
-		panic(fmt.Sprintf("failed to decode contract result: %s", err))
-	}
+	result, err := SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	require.NoError(err, "register_sensor should succeed")
+	require.NotEmpty(result.RegisterSensor, "result.registerSensor must not be empty")
 	sensorID := result.RegisterSensor.SensorID
 	require.NotEmpty(sensorID, "sensor ID must not be empty")
 
@@ -88,11 +75,8 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			},
 		},
 	}
-	txb = cc.Call(contracts.InstanceID(instanceID), req, []types.BaseUnits{})
-	_, err = SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
-	if err != nil {
-		panic(fmt.Sprintf("can't call submit_measurements: %s", err))
-	}
+	result, err = SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	require.NoError(err, "submit_measurements should succeed")
 
 	// Test querying max temperature. Should be 23.60 degC.
 	req = Request{
@@ -103,13 +87,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			End:             1657550000,
 		},
 	}
-	txb = cc.Call(contracts.InstanceID(instanceID), req, []types.BaseUnits{})
-	rawResult, err = SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
-	if err != nil {
-		panic(fmt.Sprintf("can't call query_max: %s", err))
-	}
-	if err = cbor.Unmarshal(rawResult, &result); err != nil {
-		panic(fmt.Sprintf("can't decode query_max_response: %s", err))
-	}
-	require.Equal(2360, result.QueryMax.Max, "maximum temperature must match")
+	result, err = SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	require.NoError(err, "query_max should succeed")
+	require.Equal(int32(2360), result.QueryMax.Max, "maximum temperature must match")
 }

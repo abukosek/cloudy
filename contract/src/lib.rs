@@ -284,6 +284,15 @@ impl sdk::Contract for Cloudy {
                 Ok(()) => Ok(Response::Empty),
                 Err(e) => Err(e),
             },
+            // TODO: QueryMax should reside solely inside Self::query().
+            Request::QueryMax {
+                sensor_id,
+                measurement_type,
+                start,
+                end,
+            } => Ok(Response::QueryMax {
+                max: Self::compute_max(ctx, sensor_id, measurement_type, start, end),
+            }),
             _ => Err(Error::BadRequest),
         }
     }
