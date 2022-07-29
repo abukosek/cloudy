@@ -21,17 +21,11 @@ type Seq = u64;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, cbor::Encode, cbor::Decode)]
 #[repr(u16)]
 pub enum MeasurementType {
-    #[cbor(rename = 1)]
     Temperature = 1,
-    #[cbor(rename = 2)]
     Pressure = 2,
-    #[cbor(rename = 3)]
     Humidity = 3,
-    #[cbor(rename = 4)]
     CO2 = 4,
-    #[cbor(rename = 5)]
     Illuminance = 5,
-    #[cbor(rename = 6)]
     RSSI = 6,
 }
 
@@ -92,6 +86,10 @@ pub enum Error {
     #[error("forbidden")]
     #[sdk_error(code = 2)]
     Forbidden,
+
+    #[error("unknown sensor id")]
+    #[sdk_error(code = 3)]
+    UnknownSensorID,
 }
 
 #[derive(Clone, Debug, cbor::Encode, cbor::Decode)]
@@ -168,7 +166,10 @@ impl Cloudy {
         if measurements.len() == 0 {
             return Ok(());
         }
-        let sensor: Sensor = SENSORS.get(ctx.public_store(), sensor_id).unwrap();
+        let sensor: Sensor = match SENSORS.get(ctx.public_store(), sensor_id) {
+            Some(s) => s,
+            None => return Err(Error::UnknownSensorID),
+        };
 
         for (measurement_type, measurement_values) in &measurements {
             if !sensor.measurement_types.contains(measurement_type) {

@@ -64,14 +64,15 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 		},
 	}
 	txb := cc.Call(contracts.InstanceID(instanceID), req, []types.BaseUnits{})
-	result, err := SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
+	rawResult, err := SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
+	var result Response
 	if err != nil {
 		panic(fmt.Sprintf("can't call register_sensor: %s", err))
 	}
-	var sensorID SensorID
-	if err = cbor.Unmarshal(result, &sensorID); err != nil {
-		panic(fmt.Sprintf("can't decode register_sensor_response: %s", err))
+	if err = cbor.Unmarshal(rawResult, &result); err != nil {
+		panic(fmt.Sprintf("failed to decode contract result: %s", err))
 	}
+	sensorID := result.RegisterSensor.SensorID
 	require.NotEmpty(sensorID, "sensor ID must not be empty")
 
 	// Test submit temperature measurements.
@@ -103,13 +104,12 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 		},
 	}
 	txb = cc.Call(contracts.InstanceID(instanceID), req, []types.BaseUnits{})
-	result, err = SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
+	rawResult, err = SignAndSubmitTx(ctx, rtc, sdkTesting.Alice.Signer, *txb.GetTransaction(), 200000)
 	if err != nil {
 		panic(fmt.Sprintf("can't call query_max: %s", err))
 	}
-	var maxTemp int32
-	if err = cbor.Unmarshal(result, &maxTemp); err != nil {
+	if err = cbor.Unmarshal(rawResult, &result); err != nil {
 		panic(fmt.Sprintf("can't decode query_max_response: %s", err))
 	}
-	require.Equal(2360, maxTemp, "maximum temperature must match")
+	require.Equal(2360, result.QueryMax.Max, "maximum temperature must match")
 }
