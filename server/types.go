@@ -53,7 +53,7 @@ type GetSensorsByNameRequest struct {
 }
 
 type GetSensorsByNameResponse struct {
-	Sensors []Sensor `json:"sensors"`
+	Sensors map[SensorID]Sensor `json:"sensors"`
 }
 
 type SubmitMeasurementsRequest struct {

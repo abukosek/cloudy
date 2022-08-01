@@ -124,7 +124,7 @@ pub enum Response {
     RegisterSensor { sensor_id: SensorID },
 
     #[cbor(rename = "get_sensors_by_name")]
-    GetSensorsByName { sensors: Vec<Sensor> },
+    GetSensorsByName { sensors: HashMap<SensorID, Sensor> },
 
     #[cbor(rename = "query_max")]
     QueryMax { max: i32 },
@@ -155,13 +155,17 @@ impl Cloudy {
         Ok(sensor_id)
     }
 
-    /// Returns the sensor with given sensor name for the caller or None.
-    fn get_sensor_by_name<C: sdk::Context>(ctx: &mut C, name: String) -> Option<Sensor> {
+    /// Returns the sensor for the given sensor name for the caller or None.
+    fn get_sensor_by_name<C: sdk::Context>(ctx: &mut C, name: String) -> Option<(SensorID, Sensor)> {
         let sensor_id = match Self::compute_sensor_id(name, ctx.caller_address()) {
             Ok(id) => id,
             Err(_) => return None,
         };
-        SENSORS.get(ctx.public_store(), sensor_id)
+
+        match SENSORS.get(ctx.public_store(), sensor_id) {
+            Some(s) => Some((sensor_id, s)),
+            None => None
+        }
     }
 
     // TODO: Rewrite to macro.
@@ -300,12 +304,13 @@ impl sdk::Contract for Cloudy {
                 Err(err) => Err(err),
             },
             Request::GetSensorsByName { sensor_names } => Ok(Response::GetSensorsByName {
-                sensors: sensor_names
-                    .into_iter()
-                    .map(|n| Self::get_sensor_by_name(ctx, n))
-                    .filter(|s| s.is_some())
-                    .map(|s| s.unwrap())
-                    .collect(),
+                sensors: HashMap::from_iter(
+                    sensor_names
+                        .into_iter()
+                        .map(|n| Self::get_sensor_by_name(ctx, n))
+                        .filter(|s| s.is_some())
+                        .map(|s| s.unwrap())
+                ),
             }),
             Request::SubmitMeasurements {
                 sensor_id,
@@ -399,7 +404,7 @@ mod test {
         assert_eq!(
             rsp,
             Response::GetSensorsByName {
-                sensors: vec![my_sensor]
+                sensors: HashMap::from([(sensor_id, my_sensor)]),
             }
         );
 

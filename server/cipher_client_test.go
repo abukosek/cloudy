@@ -72,7 +72,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 	require.NoError(err, "get_sensors_by_name should succeed")
 	require.NotEmpty(result.GetSensorsByName, "result.get_sensors_by_name must not be empty")
 	require.Equal(len(result.GetSensorsByName.Sensors), 1, "result.get_sensors_by_name.sensors must have 1 element")
-	require.Equal(result.GetSensorsByName.Sensors[0], mySensor)
+	require.Equal(result.GetSensorsByName.Sensors[sensorID], mySensor)
 
 	// Test submit temperature measurements.
 	req = Request{
