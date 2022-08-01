@@ -4,7 +4,10 @@ extern crate alloc;
 use std::collections::HashMap;
 
 use oasis_contract_sdk as sdk;
-use oasis_contract_sdk_storage::{cell::PublicCell, map::PublicMap};
+use oasis_contract_sdk_storage::{
+    cell::PublicCell,
+    map::{ConfidentialMap, PublicMap},
+};
 use oasis_contract_sdk_types::address::Address;
 
 use sha2::{Digest, Sha256};
@@ -34,7 +37,7 @@ pub enum MeasurementType {
 pub enum ComputeType {
     Max = 1,
     Min = 2,
-    Avg = 3
+    Avg = 3,
 }
 
 // Unique key bucket for storing measurements.
@@ -82,8 +85,8 @@ const OWNER: PublicCell<Address> = PublicCell::new(b"owner");
 const SENSORS: PublicMap<SensorID, Sensor> = PublicMap::new(b"sensors");
 
 /// Stores measurements of sensors.
-const MEASUREMENTS: PublicMap<MeasurementKey, Vec<MeasurementValue>> =
-    PublicMap::new(b"measurements");
+const MEASUREMENTS: ConfidentialMap<MeasurementKey, Vec<MeasurementValue>> =
+    ConfidentialMap::new(b"measurements");
 
 #[derive(Debug, thiserror::Error, sdk::Error)]
 pub enum Error {
@@ -165,7 +168,10 @@ impl Cloudy {
     }
 
     /// Returns the sensor for the given sensor name for the caller or None.
-    fn get_sensor_by_name<C: sdk::Context>(ctx: &mut C, name: String) -> Option<(SensorID, Sensor)> {
+    fn get_sensor_by_name<C: sdk::Context>(
+        ctx: &mut C,
+        name: String,
+    ) -> Option<(SensorID, Sensor)> {
         let sensor_id = match Self::compute_sensor_id(name, ctx.caller_address()) {
             Ok(id) => id,
             Err(_) => return None,
@@ -173,7 +179,7 @@ impl Cloudy {
 
         match SENSORS.get(ctx.public_store(), sensor_id) {
             Some(s) => Some((sensor_id, s)),
-            None => None
+            None => None,
         }
     }
 
@@ -214,7 +220,7 @@ impl Cloudy {
             let mut seq = measurement_values[0].timestamp / sensor.storage_granularity;
             let mut cur_seq_vals: Vec<MeasurementValue> = MEASUREMENTS
                 .get(
-                    ctx.public_store(),
+                    ctx.confidential_store(),
                     to_measurement_key(sensor_id, *measurement_type, seq),
                 )
                 .unwrap_or(vec![]);
@@ -222,13 +228,13 @@ impl Cloudy {
             for m in measurement_values.iter() {
                 if seq != old_seq {
                     MEASUREMENTS.insert(
-                        ctx.public_store(),
+                        ctx.confidential_store(),
                         to_measurement_key(sensor_id, *measurement_type, old_seq),
                         cur_seq_vals,
                     );
                     cur_seq_vals = MEASUREMENTS
                         .get(
-                            ctx.public_store(),
+                            ctx.confidential_store(),
                             to_measurement_key(sensor_id, *measurement_type, seq),
                         )
                         .unwrap_or(vec![]);
@@ -241,7 +247,7 @@ impl Cloudy {
             }
             if cur_seq_vals.len() > 0 {
                 MEASUREMENTS.insert(
-                    ctx.public_store(),
+                    ctx.confidential_store(),
                     to_measurement_key(sensor_id, *measurement_type, seq),
                     cur_seq_vals,
                 );
@@ -279,18 +285,22 @@ impl Cloudy {
         while seq < end_seq {
             for m in MEASUREMENTS
                 .get(
-                    ctx.public_store(),
+                    ctx.confidential_store(),
                     to_measurement_key(sensor_id, measurement_type, seq),
                 )
                 .unwrap_or(vec![])
             {
                 match compute_type {
-                    ComputeType::Max => if m.value > v {
-                        v = m.value
-                    },
-                    ComputeType::Min => if m.value < v {
-                        v = m.value
-                    },
+                    ComputeType::Max => {
+                        if m.value > v {
+                            v = m.value
+                        }
+                    }
+                    ComputeType::Min => {
+                        if m.value < v {
+                            v = m.value
+                        }
+                    }
                     ComputeType::Avg => v += m.value,
                 }
                 steps += 1
@@ -302,7 +312,7 @@ impl Cloudy {
             ComputeType::Max | ComputeType::Min => v,
             ComputeType::Avg => match steps {
                 0 => 0,
-                delta => v/delta
+                delta => v / delta,
             },
         }
     }
@@ -338,7 +348,7 @@ impl sdk::Contract for Cloudy {
                         .into_iter()
                         .map(|n| Self::get_sensor_by_name(ctx, n))
                         .filter(|s| s.is_some())
-                        .map(|s| s.unwrap())
+                        .map(|s| s.unwrap()),
                 ),
             }),
             Request::SubmitMeasurements {
@@ -487,7 +497,7 @@ mod test {
                 end: 1657550000,
             },
         )
-            .expect("Query for minimum should work");
+        .expect("Query for minimum should work");
         assert_eq!(rsp, Response::Query { value: 2340 });
 
         // Query for average temperature.
@@ -501,8 +511,7 @@ mod test {
                 end: 1657550000,
             },
         )
-            .expect("Query for average should work");
+        .expect("Query for average should work");
         assert_eq!(rsp, Response::Query { value: 2350 });
-
     }
 }
