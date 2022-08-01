@@ -1,0 +1,33 @@
+# ed25519 private key in base64 format. "OPYg5hO22BvHgHmtjo/dZgyn/+efqDhcAfcZ6NsMKhc1w/M1bdhTZP66A1S1Ra2hCdG9s4v11hJoF9uMcs/WkQ==" for Alice.
+signer_key: ""
+
+# GRPC socket or local unix socket. https://grpc.oasis.dev:443 for testnet.
+socket: ""
+
+# Cipher Runtime ID. 0000000000000000000000000000000000000000000000000000000000000000 for testnet.
+runtime_id: ""
+
+# Smart contract instance ID.
+instance_id: 0
+
+# List of sensors.
+sensors:
+  - 
+    # Unique name of the sensor.
+    name: esp8266_bedroom
+
+    # Supported types:
+    # -	Temperature: 1
+    # - Pressure:    2
+    # - Humidity:    3
+    # - CO2:         4
+    # - Illuminance: 5
+    # - RSSI:        6
+    measurement_types: [1, 3]
+
+    # Measurements granularity for storing. Should match the interval measurements are sent to the blockchain.
+    storage_granularity: 600
+
+    # Measurements aggregation granularity in seconds for making queries. Higher granularity, lower c13y.
+    query_granularity: 86400
+

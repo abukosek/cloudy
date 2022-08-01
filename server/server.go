@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -10,30 +11,26 @@ import (
 	"os"
 	"time"
 
+	cmnGrpc "github.com/oasisprotocol/oasis-core/go/common/grpc"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/crypto/signature"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/crypto/signature/ed25519"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 )
 
 // How often to submit batch of sensor readings to the blockchain?
 const BatchTime = 10 * time.Minute
 
-type SensorData struct {
-	Name        string `json:"name"`
-	Timestamp   uint64 `json:"t"`             // UNIX time
-	RSSI        int8   `json:"RSSI"`          // dBm
-	Temperature int32  `json:"T,omitempty"`   // C*100
-	Pressure    uint32 `json:"p,omitempty"`   // hPa*1000
-	Humidity    uint32 `json:"RH,omitempty"`  // RH%*1000
-	CO2         uint16 `json:"CO2,omitempty"` // ppm
-	Illuminance uint16 `json:"Ev,omitempty"`  // lux
-}
-
-type SensorDatabase struct {
-	Sensors []string
-}
-
 var (
-	// Sensor database.
-	SensorDB SensorDatabase
+	// Cfg is the config for running a server or performing queries.
+	Cfg Config
+
+	// signer is the signer instance used to sign Oasis transactions.
+	signer signature.Signer
+
+	rtc client.RuntimeClient
 
 	// Map of sensor name -> ID.
 	KnownSensors map[string]SensorID
@@ -47,25 +44,57 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Load sensor database.
-	sensorDBRaw, err := ioutil.ReadFile("sensor-db.yaml")
+	// Load config with sensor database etc.
+	cfgRaw, err := ioutil.ReadFile("config.yaml")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Unable to read sensor database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to read config: %v\n", err)
 		os.Exit(1)
 	}
-	err = yaml.Unmarshal(sensorDBRaw, &SensorDB)
+	err = yaml.Unmarshal(cfgRaw, &Cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Unable to parse sensor database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to parse config: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "*** Sensor database contains %d sensor(s).\n", len(SensorDB.Sensors))
+	fmt.Fprintf(os.Stderr, "*** Config contains %d sensor(s).\n", len(Cfg.Sensors))
+
+	conn, err := cmnGrpc.Dial(Cfg.Socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to connect to testSocket %s: %v\n", Cfg.Socket, err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	rtc = client.New(conn, Cfg.RuntimeID)
+	ctx, cancelFn := context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancelFn()
+
+	var rawSigner ed25519rawSigner
+	if err := rawSigner.unmarshalBase64(Cfg.SignerKey); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to parse Signer's private key: %v\n", err)
+		os.Exit(1)
+	}
+	signer = ed25519.WrapSigner(&rawSigner)
 
 	// Check if the sensors are already registered, otherwise register them.
 	// Also obtain sensor IDs and set-up a map of sensor name to ID.
-	for _, sensor := range SensorDB.Sensors {
-		// TODO: matevz: Register if needed and obtain sensor ID.
-		KnownSensors[sensor] = SensorID{}
+	KnownSensors = make(map[string]SensorID)
+	sensorNames := []string{}
+	for _, sensor := range Cfg.Sensors {
+		sensorNames = append(sensorNames, sensor.Name)
+	}
+	req := Request{
+		GetSensorsByName: &GetSensorsByNameRequest{
+			SensorNames: sensorNames,
+		},
+	}
+	result, err := SignAndSubmitTx(ctx, rtc, signer, req, Cfg.InstanceID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to sign and submit transaction: %v\n", err)
+		os.Exit(1)
+	}
+	for id, s := range result.GetSensorsByName.Sensors {
+		KnownSensors[s.Name] = id
 	}
 
 	// TODO: When client authentication is implemented, also verify if the
@@ -95,11 +124,11 @@ func main() {
 			continue
 		}
 
-		go handleConnection(conn, dataCh)
+		go handleSensorConnection(conn, dataCh)
 	}
 }
 
-func handleConnection(conn net.Conn, dataCh chan string) {
+func handleSensorConnection(conn net.Conn, dataCh chan string) {
 	defer conn.Close()
 
 	r := bufio.NewReader(conn)
@@ -118,14 +147,14 @@ func handleConnection(conn net.Conn, dataCh chan string) {
 }
 
 func batchHandler(dataCh <-chan string) {
-	batch := make([]SensorData, 0)
+	batch := make([]RawSensorData, 0)
 	submitBatchTicker := time.NewTicker(BatchTime)
 
 	for {
 		select {
 		case data := <-dataCh:
 			// Decode JSON.
-			var d SensorData
+			var d RawSensorData
 			if err := json.Unmarshal([]byte(data), &d); err != nil {
 				fmt.Fprintf(os.Stderr, "ERROR: malformed data: %v\n", err)
 				continue
@@ -156,12 +185,12 @@ func batchHandler(dataCh <-chan string) {
 			}
 
 			// Reset batch if submission was successful.
-			batch = make([]SensorData, 0)
+			batch = make([]RawSensorData, 0)
 		}
 	}
 }
 
-func convertBatchAndSubmit(batch []SensorData) error {
+func convertBatchAndSubmit(batch []RawSensorData) error {
 	// Sensor name -> SubmitMeasurementsRequest.
 	sensors := make(map[string]SubmitMeasurementsRequest)
 
@@ -222,8 +251,15 @@ func convertBatchAndSubmit(batch []SensorData) error {
 
 	// Now submit the requests.
 	for _, s := range sensors {
-		// TODO: matevz.
-		_ = s
+		req := Request{
+			SubmitMeasurements: &SubmitMeasurementsRequest{
+				SensorID:     s.SensorID,
+				Measurements: s.Measurements,
+			},
+		}
+		if _, err := SignAndSubmitTx(context.Background(), rtc, signer, req, Cfg.InstanceID); err != nil {
+			return err
+		}
 	}
 
 	return nil

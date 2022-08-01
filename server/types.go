@@ -1,6 +1,11 @@
 package main
 
-import "encoding/hex"
+import (
+	"encoding/hex"
+
+	"github.com/oasisprotocol/oasis-core/go/common"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/contracts"
+)
 
 const (
 	Temperature MeasurementType = 1
@@ -19,6 +24,26 @@ var (
 	EmptyResponseRaw, _ = hex.DecodeString("65656d707479")
 )
 
+// RawSensorData is a single measurement received from the sensor.
+type RawSensorData struct {
+	Name        string `json:"name"`
+	Timestamp   uint64 `json:"t"`             // UNIX time
+	RSSI        int8   `json:"RSSI"`          // dBm
+	Temperature int32  `json:"T,omitempty"`   // C*100
+	Pressure    uint32 `json:"p,omitempty"`   // hPa*1000
+	Humidity    uint32 `json:"RH,omitempty"`  // RH%*1000
+	CO2         uint16 `json:"CO2,omitempty"` // ppm
+	Illuminance uint16 `json:"Ev,omitempty"`  // lux
+}
+
+type Config struct {
+	SignerKey  string `yaml:"signer_key"`
+	Socket     string
+	RuntimeID  common.Namespace     `yaml:"runtime_id"`
+	InstanceID contracts.InstanceID `yaml:"instance_id"`
+	Sensors    []Sensor
+}
+
 type MeasurementType uint16
 type ComputeType uint8
 type SensorID [8]byte
@@ -26,9 +51,9 @@ type Timestamp uint64
 
 type Sensor struct {
 	Name               string            `json:"name"`
-	MeasurementTypes   []MeasurementType `json:"measurement_types"`
-	StorageGranularity uint64            `json:"storage_granularity"`
-	QueryGranularity   uint64            `json:"query_granularity"`
+	MeasurementTypes   []MeasurementType `json:"measurement_types" yaml:"measurement_types"`
+	StorageGranularity uint64            `json:"storage_granularity" yaml:"storage_granularity"`
+	QueryGranularity   uint64            `json:"query_granularity" yaml:"query_granularity"`
 }
 
 type Request struct {
