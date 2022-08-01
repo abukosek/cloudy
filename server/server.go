@@ -23,7 +23,7 @@ type SensorData struct {
 	Temperature int32  `json:"T,omitempty"`   // C*100
 	Pressure    uint32 `json:"p,omitempty"`   // hPa*1000
 	Humidity    uint32 `json:"RH,omitempty"`  // RH%*1000
-	Co2         uint16 `json:"Co2,omitempty"` // ppm
+	CO2         uint16 `json:"CO2,omitempty"` // ppm
 	Illuminance uint16 `json:"Ev,omitempty"`  // lux
 }
 
@@ -201,10 +201,10 @@ func convertBatchAndSubmit(batch []SensorData) error {
 			})
 		}
 
-		if b.Co2 > 0 {
-			sensor.Measurements[Co2] = append(sensor.Measurements[Co2], MeasurementValue{
+		if b.CO2 > 0 {
+			sensor.Measurements[CO2] = append(sensor.Measurements[CO2], MeasurementValue{
 				Timestamp: Timestamp(b.Timestamp),
-				Value:     int32(b.Co2),
+				Value:     int32(b.CO2),
 			})
 		}
 
