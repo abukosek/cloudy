@@ -6,7 +6,7 @@ const (
 	Temperature MeasurementType = 1
 	Pressure    MeasurementType = 2
 	Humidity    MeasurementType = 3
-	CO2         MeasurementType = 4
+	Co2         MeasurementType = 4
 	Illuminance MeasurementType = 5
 	RSSI        MeasurementType = 6
 )

@@ -24,7 +24,7 @@ pub enum MeasurementType {
     Temperature = 1,
     Pressure = 2,
     Humidity = 3,
-    CO2 = 4,
+    Co2 = 4,
     Illuminance = 5,
     RSSI = 6,
 }
