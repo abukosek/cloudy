@@ -28,14 +28,16 @@ type Sensor struct {
 
 type Request struct {
 	RegisterSensor     *RegisterSensorRequest     `json:"register_sensor,omitempty"`
+	GetSensorsByName   *GetSensorsByNameRequest   `json:"get_sensors_by_name,omitempty"`
 	SubmitMeasurements *SubmitMeasurementsRequest `json:"submit_measurements,omitempty"`
 	QueryMax           *QueryMaxRequest           `json:"query_max,omitempty"`
 }
 
 type Response struct {
-	RegisterSensor *RegisterSensorResponse `json:"register_sensor,omitempty"`
-	QueryMax       *QueryMaxResponse       `json:"query_max,omitempty"`
-	Empty          *EmptyResponse          `json:"empty,omitempty"`
+	RegisterSensor   *RegisterSensorResponse   `json:"register_sensor,omitempty"`
+	GetSensorsByName *GetSensorsByNameResponse `json:"get_sensors_by_name,omitempty"`
+	QueryMax         *QueryMaxResponse         `json:"query_max,omitempty"`
+	Empty            *EmptyResponse            `json:"empty,omitempty"`
 }
 
 type RegisterSensorRequest struct {
@@ -44,6 +46,14 @@ type RegisterSensorRequest struct {
 
 type RegisterSensorResponse struct {
 	SensorID SensorID `json:"sensor_id"`
+}
+
+type GetSensorsByNameRequest struct {
+	SensorNames []string `json:"sensor_names"`
+}
+
+type GetSensorsByNameResponse struct {
+	Sensors []Sensor `json:"sensors"`
 }
 
 type SubmitMeasurementsRequest struct {

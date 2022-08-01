@@ -100,6 +100,9 @@ pub enum Request {
     #[cbor(rename = "register_sensor")]
     RegisterSensor { sensor: Sensor },
 
+    #[cbor(rename = "get_sensors_by_name")]
+    GetSensorsByName { sensor_names: Vec<String> },
+
     #[cbor(rename = "submit_measurements")]
     SubmitMeasurements {
         sensor_id: SensorID,
@@ -119,6 +122,9 @@ pub enum Request {
 pub enum Response {
     #[cbor(rename = "register_sensor")]
     RegisterSensor { sensor_id: SensorID },
+
+    #[cbor(rename = "get_sensors_by_name")]
+    GetSensorsByName { sensors: Vec<Sensor> },
 
     #[cbor(rename = "query_max")]
     QueryMax { max: i32 },
@@ -140,16 +146,32 @@ impl Cloudy {
         if owner != caller_address {
             return Err(Error::Forbidden);
         }
-
-        let mut hasher = Sha256::new();
-        hasher.update(sensor.name.clone() + &ctx.caller_address().to_bech32());
-        let sensor_id: SensorID = match hasher.finalize()[..8].try_into() {
+        let sensor_id = match Self::compute_sensor_id(sensor.name.clone(), ctx.caller_address()) {
             Ok(id) => id,
             Err(_) => return Err(Error::BadRequest),
         };
         SENSORS.insert(ctx.public_store(), sensor_id, sensor);
 
         Ok(sensor_id)
+    }
+
+    /// Returns the sensor with given sensor name for the caller or None.
+    fn get_sensor_by_name<C: sdk::Context>(ctx: &mut C, name: String) -> Option<Sensor> {
+        let sensor_id = match Self::compute_sensor_id(name, ctx.caller_address()) {
+            Ok(id) => id,
+            Err(_) => return None,
+        };
+        SENSORS.get(ctx.public_store(), sensor_id)
+    }
+
+    // TODO: Rewrite to macro.
+    fn compute_sensor_id(
+        name: String,
+        address: &Address,
+    ) -> Result<SensorID, std::array::TryFromSliceError> {
+        let mut hasher = Sha256::new();
+        hasher.update(name.clone() + &address.to_bech32());
+        hasher.finalize()[..8].try_into()
     }
 
     // TODO: Rewrite to macro.
@@ -277,6 +299,14 @@ impl sdk::Contract for Cloudy {
                 }),
                 Err(err) => Err(err),
             },
+            Request::GetSensorsByName { sensor_names } => Ok(Response::GetSensorsByName {
+                sensors: sensor_names
+                    .into_iter()
+                    .map(|n| Self::get_sensor_by_name(ctx, n))
+                    .filter(|s| s.is_some())
+                    .map(|s| s.unwrap())
+                    .collect(),
+            }),
             Request::SubmitMeasurements {
                 sensor_id,
                 measurements,
@@ -329,18 +359,16 @@ mod test {
         Cloudy::instantiate(&mut ctx, Request::Instantiate {}).expect("instantiation should work");
 
         // Register sensor.
+        let my_sensor = Sensor {
+            name: "esp2866_bedroom".to_string(),
+            measurement_types: vec![MeasurementType::Temperature, MeasurementType::Humidity],
+            storage_granularity: 10 * 60, // 10 minutes
+            query_granularity: 3600 * 4,  // 4 hours
+        };
         let rsp = Cloudy::call(
             &mut ctx,
             Request::RegisterSensor {
-                sensor: Sensor {
-                    name: "esp2866_bedroom".to_string(),
-                    measurement_types: vec![
-                        MeasurementType::Temperature,
-                        MeasurementType::Humidity,
-                    ],
-                    storage_granularity: 10 * 60, // 10 minutes
-                    query_granularity: 3600 * 4,  // 4 hours
-                },
+                sensor: my_sensor.clone(),
             },
         )
         .expect("RegisterSensor call should work");
@@ -354,6 +382,26 @@ mod test {
 
         // Make sure sensor_id is correct.
         assert_ne!(sensor_id, [0, 0, 0, 0, 0, 0, 0, 0],);
+
+        // Check, if sensor was registered and get some non-existent sensor name.
+        let rsp = Cloudy::call(
+            &mut ctx,
+            Request::GetSensorsByName {
+                sensor_names: vec![
+                    "esp2866_bedroom".to_string(),
+                    "some-non-existent sensor".to_string(),
+                ],
+            },
+        )
+        .expect("GetSensorsByName should work");
+
+        // Make sure list of sensors is correct.
+        assert_eq!(
+            rsp,
+            Response::GetSensorsByName {
+                sensors: vec![my_sensor]
+            }
+        );
 
         // Send some measurements.
         let req = Request::SubmitMeasurements {

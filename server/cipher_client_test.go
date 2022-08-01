@@ -23,7 +23,7 @@ var (
 	// Cipher runtime ID.
 	runtimeID = "8000000000000000000000000000000000000000000000000000000000000000"
 	// First deployed contract.
-	instanceID = contracts.InstanceID(1)
+	instanceID = contracts.InstanceID(0)
 	// Signer.
 	signer = sdkTesting.Alice.Signer
 )
@@ -46,21 +46,33 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 	defer cancelFn()
 
 	// Test registering new sensor and obtaining new ID.
+	mySensor := Sensor{
+		Name:               "esp2866_bedroom",
+		MeasurementTypes:   []MeasurementType{Temperature, Humidity},
+		StorageGranularity: 60 * 10,
+		QueryGranularity:   3600 * 4,
+	}
 	req := Request{
 		RegisterSensor: &RegisterSensorRequest{
-			Sensor: Sensor{
-				Name:               "esp2866_bedroom",
-				MeasurementTypes:   []MeasurementType{Temperature, Humidity},
-				StorageGranularity: 60 * 10,
-				QueryGranularity:   3600 * 4,
-			},
+			Sensor: mySensor,
 		},
 	}
 	result, err := SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
 	require.NoError(err, "register_sensor should succeed")
-	require.NotEmpty(result.RegisterSensor, "result.registerSensor must not be empty")
+	require.NotEmpty(result.RegisterSensor, "result.register_sensor must not be empty")
 	sensorID := result.RegisterSensor.SensorID
 	require.NotEmpty(sensorID, "sensor ID must not be empty")
+
+	req = Request{
+		GetSensorsByName: &GetSensorsByNameRequest{
+			SensorNames: []string{mySensor.Name, "some-non-existent sensor"},
+		},
+	}
+	result, err = SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	require.NoError(err, "get_sensors_by_name should succeed")
+	require.NotEmpty(result.GetSensorsByName, "result.get_sensors_by_name must not be empty")
+	require.Equal(len(result.GetSensorsByName.Sensors), 1, "result.get_sensors_by_name.sensors must have 1 element")
+	require.Equal(result.GetSensorsByName.Sensors[0], mySensor)
 
 	// Test submit temperature measurements.
 	req = Request{
