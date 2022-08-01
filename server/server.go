@@ -90,11 +90,27 @@ func main() {
 	}
 	result, err := SignAndSubmitTx(ctx, rtc, signer, req, Cfg.InstanceID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Unable to sign and submit transaction: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ERROR: Unable to sign and submit get_sensors_by_name: %v\n", err)
 		os.Exit(1)
 	}
 	for id, s := range result.GetSensorsByName.Sensors {
 		KnownSensors[s.Name] = id
+	}
+
+	// Register any sensor which is not registered yet.
+	for _, s := range Cfg.Sensors {
+		if _, ok := KnownSensors[s.Name]; !ok {
+			req := Request{
+				RegisterSensor: &RegisterSensorRequest{s},
+			}
+			result, err := SignAndSubmitTx(ctx, rtc, signer, req, Cfg.InstanceID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ERROR: Unable to sign and submit register_sensor: %v\n", err)
+				os.Exit(1)
+			}
+			KnownSensors[s.Name] = result.RegisterSensor.SensorID
+			fmt.Printf("Registered sensor %s => %X.\n", s.Name, result.RegisterSensor.SensorID)
+		}
 	}
 
 	// TODO: When client authentication is implemented, also verify if the
