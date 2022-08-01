@@ -17,15 +17,14 @@ import (
 )
 
 var (
-	// Path to local socket. Replace with , if needed.
-	socket = "unix:/tmp/cipher-test/net-runner/network/client-0/internal.sock"
-	// socket = "testnet.grpc.oasis.dev:443"
+	// Path to local socket.
+	testSocket = "unix:/tmp/cipher-test/net-runner/network/client-0/internal.sock"
 	// Cipher runtime ID.
-	runtimeID = "8000000000000000000000000000000000000000000000000000000000000000"
+	testRuntimeID = "8000000000000000000000000000000000000000000000000000000000000000"
 	// First deployed contract.
-	instanceID = contracts.InstanceID(0)
+	testInstanceID = contracts.InstanceID(0)
 	// Signer.
-	signer = sdkTesting.Alice.Signer
+	testSigner = sdkTesting.Alice.Signer
 )
 
 // E2E test. Requires already instantiated cloudy smart contract.
@@ -33,11 +32,11 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 	require := require.New(t)
 
 	var rtID common.Namespace
-	err := rtID.UnmarshalHex(runtimeID)
+	err := rtID.UnmarshalHex(testRuntimeID)
 	require.NoError(err, "runtime ID decoding should succeed")
 
-	conn, err := cmnGrpc.Dial(socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(err, "connection to socket should succeed")
+	conn, err := cmnGrpc.Dial(testSocket, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(err, "connection to testSocket should succeed")
 	defer conn.Close()
 
 	rtc := client.New(conn, rtID)
@@ -57,7 +56,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			Sensor: mySensor,
 		},
 	}
-	result, err := SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	result, err := SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
 	require.NoError(err, "register_sensor should succeed")
 	require.NotEmpty(result.RegisterSensor, "result.register_sensor must not be empty")
 	sensorID := result.RegisterSensor.SensorID
@@ -68,7 +67,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			SensorNames: []string{mySensor.Name, "some-non-existent sensor"},
 		},
 	}
-	result, err = SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	result, err = SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
 	require.NoError(err, "get_sensors_by_name should succeed")
 	require.NotEmpty(result.GetSensorsByName, "result.get_sensors_by_name must not be empty")
 	require.Equal(len(result.GetSensorsByName.Sensors), 1, "result.get_sensors_by_name.sensors must have 1 element")
@@ -82,24 +81,51 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 				Temperature: {
 					{Timestamp: 1657541274, Value: 2350},
 					{Timestamp: 1657541284, Value: 2360},
-					{Timestamp: 1657541294, Value: 2350},
+					{Timestamp: 1657541294, Value: 2340},
 				},
 			},
 		},
 	}
-	result, err = SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
+	result, err = SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
 	require.NoError(err, "submit_measurements should succeed")
 
 	// Test querying max temperature. Should be 23.60 degC.
 	req = Request{
-		QueryMax: &QueryMaxRequest{
+		Query: &QueryRequest{
 			SensorID:        sensorID,
 			MeasurementType: Temperature,
+			ComputeType:     Max,
 			Start:           1657540000,
 			End:             1657550000,
 		},
 	}
-	result, err = SignAndSubmitTx(ctx, rtc, signer, req, instanceID)
-	require.NoError(err, "query_max should succeed")
-	require.Equal(int32(2360), result.QueryMax.Max, "maximum temperature must match")
+	result, err = SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
+	require.NoError(err, "query max should succeed")
+	require.Equal(int32(2360), result.Query.Value, "maximum temperature must match")
+
+	req = Request{
+		Query: &QueryRequest{
+			SensorID:        sensorID,
+			MeasurementType: Temperature,
+			ComputeType:     Min,
+			Start:           1657540000,
+			End:             1657550000,
+		},
+	}
+	result, err = SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
+	require.NoError(err, "query min should succeed")
+	require.Equal(int32(2340), result.Query.Value, "maximum temperature must match")
+
+	req = Request{
+		Query: &QueryRequest{
+			SensorID:        sensorID,
+			MeasurementType: Temperature,
+			ComputeType:     Avg,
+			Start:           1657540000,
+			End:             1657550000,
+		},
+	}
+	result, err = SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
+	require.NoError(err, "query avg should succeed")
+	require.Equal(int32(2350), result.Query.Value, "maximum temperature must match")
 }

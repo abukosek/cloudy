@@ -29,6 +29,14 @@ pub enum MeasurementType {
     RSSI = 6,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, cbor::Encode, cbor::Decode)]
+#[repr(u8)]
+pub enum ComputeType {
+    Max = 1,
+    Min = 2,
+    Avg = 3
+}
+
 // Unique key bucket for storing measurements.
 type MeasurementKey = [u8; 24];
 
@@ -109,10 +117,11 @@ pub enum Request {
         measurements: HashMap<MeasurementType, Vec<MeasurementValue>>,
     },
 
-    #[cbor(rename = "query_max")]
-    QueryMax {
+    #[cbor(rename = "query")]
+    Query {
         sensor_id: SensorID,
         measurement_type: MeasurementType,
+        compute_type: ComputeType,
         start: Timestamp,
         end: Timestamp,
     },
@@ -126,8 +135,8 @@ pub enum Response {
     #[cbor(rename = "get_sensors_by_name")]
     GetSensorsByName { sensors: HashMap<SensorID, Sensor> },
 
-    #[cbor(rename = "query_max")]
-    QueryMax { max: i32 },
+    #[cbor(rename = "query")]
+    Query { value: i32 },
 
     #[cbor(rename = "empty")]
     Empty,
@@ -242,11 +251,12 @@ impl Cloudy {
         Ok(())
     }
 
-    /// Compute the maximum.
-    fn compute_max<C: sdk::Context>(
+    /// Compute the maximum, minimum, average.
+    fn compute<C: sdk::Context>(
         ctx: &mut C,
         sensor_id: SensorID,
         measurement_type: MeasurementType,
+        compute_type: ComputeType,
         start: Timestamp,
         end: Timestamp,
     ) -> i32 {
@@ -256,12 +266,17 @@ impl Cloudy {
             Self::timestamp_floor(sensor.query_granularity, end) + sensor.query_granularity;
         let mut seq = Self::timestamp_floor(sensor.storage_granularity, ts_start)
             / sensor.storage_granularity;
-        let max_seq = (Self::timestamp_floor(sensor.storage_granularity, ts_end)
+        let end_seq = (Self::timestamp_floor(sensor.storage_granularity, ts_end)
             + sensor.storage_granularity)
             / sensor.storage_granularity;
 
-        let mut max_temp: i32 = i32::MIN;
-        while seq < max_seq {
+        let mut v: i32 = match compute_type {
+            ComputeType::Max => i32::MIN,
+            ComputeType::Min => i32::MAX,
+            _ => 0,
+        };
+        let mut steps: i32 = 0;
+        while seq < end_seq {
             for m in MEASUREMENTS
                 .get(
                     ctx.public_store(),
@@ -269,13 +284,27 @@ impl Cloudy {
                 )
                 .unwrap_or(vec![])
             {
-                if m.value > max_temp {
-                    max_temp = m.value
+                match compute_type {
+                    ComputeType::Max => if m.value > v {
+                        v = m.value
+                    },
+                    ComputeType::Min => if m.value < v {
+                        v = m.value
+                    },
+                    ComputeType::Avg => v += m.value,
                 }
+                steps += 1
             }
             seq += 1
         }
-        max_temp
+
+        match compute_type {
+            ComputeType::Max | ComputeType::Min => v,
+            ComputeType::Avg => match steps {
+                0 => 0,
+                delta => v/delta
+            },
+        }
     }
 }
 
@@ -319,14 +348,15 @@ impl sdk::Contract for Cloudy {
                 Ok(()) => Ok(Response::Empty),
                 Err(e) => Err(e),
             },
-            // TODO: QueryMax should reside solely inside Self::query().
-            Request::QueryMax {
+            // TODO: Query request handling should reside solely inside Self::query().
+            Request::Query {
                 sensor_id,
                 measurement_type,
+                compute_type,
                 start,
                 end,
-            } => Ok(Response::QueryMax {
-                max: Self::compute_max(ctx, sensor_id, measurement_type, start, end),
+            } => Ok(Response::Query {
+                value: Self::compute(ctx, sensor_id, measurement_type, compute_type, start, end),
             }),
             _ => Err(Error::BadRequest),
         }
@@ -334,13 +364,14 @@ impl sdk::Contract for Cloudy {
 
     fn query<C: sdk::Context>(ctx: &mut C, request: Request) -> Result<Response, Error> {
         match request {
-            Request::QueryMax {
+            Request::Query {
                 sensor_id,
                 measurement_type,
+                compute_type,
                 start,
                 end,
-            } => Ok(Response::QueryMax {
-                max: Self::compute_max(ctx, sensor_id, measurement_type, start, end),
+            } => Ok(Response::Query {
+                value: Self::compute(ctx, sensor_id, measurement_type, compute_type, start, end),
             }),
             _ => Err(Error::BadRequest),
         }
@@ -424,7 +455,7 @@ mod test {
                     },
                     MeasurementValue {
                         timestamp: 1657541294,
-                        value: 2350,
+                        value: 2340,
                     },
                 ],
             )]),
@@ -434,16 +465,44 @@ mod test {
         // Query for maximum temperature.
         let rsp = Cloudy::query(
             &mut ctx,
-            Request::QueryMax {
+            Request::Query {
                 sensor_id: sensor_id,
                 measurement_type: MeasurementType::Temperature,
+                compute_type: ComputeType::Max,
                 start: 1657540000,
                 end: 1657550000,
             },
         )
-        .expect("QueryMax should work");
+        .expect("Query for maximum should work");
+        assert_eq!(rsp, Response::Query { value: 2360 });
 
-        // Make sure max is correct.
-        assert_eq!(rsp, Response::QueryMax { max: 2360 });
+        // Query for minimum temperature.
+        let rsp = Cloudy::query(
+            &mut ctx,
+            Request::Query {
+                sensor_id: sensor_id,
+                measurement_type: MeasurementType::Temperature,
+                compute_type: ComputeType::Min,
+                start: 1657540000,
+                end: 1657550000,
+            },
+        )
+            .expect("Query for minimum should work");
+        assert_eq!(rsp, Response::Query { value: 2340 });
+
+        // Query for average temperature.
+        let rsp = Cloudy::query(
+            &mut ctx,
+            Request::Query {
+                sensor_id: sensor_id,
+                measurement_type: MeasurementType::Temperature,
+                compute_type: ComputeType::Avg,
+                start: 1657540000,
+                end: 1657550000,
+            },
+        )
+            .expect("Query for average should work");
+        assert_eq!(rsp, Response::Query { value: 2350 });
+
     }
 }

@@ -9,6 +9,10 @@ const (
 	CO2         MeasurementType = 4
 	Illuminance MeasurementType = 5
 	RSSI        MeasurementType = 6
+
+	Max ComputeType = 1
+	Min ComputeType = 2
+	Avg ComputeType = 3
 )
 
 var (
@@ -16,6 +20,7 @@ var (
 )
 
 type MeasurementType uint16
+type ComputeType uint8
 type SensorID [8]byte
 type Timestamp uint64
 
@@ -30,13 +35,13 @@ type Request struct {
 	RegisterSensor     *RegisterSensorRequest     `json:"register_sensor,omitempty"`
 	GetSensorsByName   *GetSensorsByNameRequest   `json:"get_sensors_by_name,omitempty"`
 	SubmitMeasurements *SubmitMeasurementsRequest `json:"submit_measurements,omitempty"`
-	QueryMax           *QueryMaxRequest           `json:"query_max,omitempty"`
+	Query              *QueryRequest              `json:"query,omitempty"`
 }
 
 type Response struct {
 	RegisterSensor   *RegisterSensorResponse   `json:"register_sensor,omitempty"`
 	GetSensorsByName *GetSensorsByNameResponse `json:"get_sensors_by_name,omitempty"`
-	QueryMax         *QueryMaxResponse         `json:"query_max,omitempty"`
+	Query            *QueryResponse            `json:"query,omitempty"`
 	Empty            *EmptyResponse            `json:"empty,omitempty"`
 }
 
@@ -61,15 +66,16 @@ type SubmitMeasurementsRequest struct {
 	Measurements map[MeasurementType][]MeasurementValue `json:"measurements"`
 }
 
-type QueryMaxRequest struct {
+type QueryRequest struct {
 	SensorID        SensorID        `json:"sensor_id"`
 	MeasurementType MeasurementType `json:"measurement_type"`
+	ComputeType     ComputeType     `json:"compute_type"`
 	Start           Timestamp       `json:"start"`
 	End             Timestamp       `json:"end"`
 }
 
-type QueryMaxResponse struct {
-	Max int32 `json:"max"`
+type QueryResponse struct {
+	Value int32 `json:"value"`
 }
 
 type MeasurementValue struct {
