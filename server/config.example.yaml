@@ -1,7 +1,7 @@
 # ed25519 private key in base64 format. "OPYg5hO22BvHgHmtjo/dZgyn/+efqDhcAfcZ6NsMKhc1w/M1bdhTZP66A1S1Ra2hCdG9s4v11hJoF9uMcs/WkQ==" for Alice.
 signer_key: ""
 
-# GRPC socket or local unix socket. https://grpc.oasis.dev:443 for testnet.
+# GRPC socket or local unix socket. grpc.oasis.dev:443 for testnet.
 socket: ""
 
 # Cipher Runtime ID. 0000000000000000000000000000000000000000000000000000000000000000 for testnet.
