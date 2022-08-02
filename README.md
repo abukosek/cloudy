@@ -2,7 +2,7 @@
 
 This is a confidential platform for collecting sensor measurements and which
 allows queries on aggregated data only. It is built on top of Cipher - the
-confidential ParaTime running on the Oasis network.
+confidential ParaTime running on the [Oasis network](https://oasisprotocol.org).
 
 ![Temperature measurements](docs/temperature.png)
 
