@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"strings"
 
 	"github.com/oasisprotocol/oasis-core/go/common/cbor"
+	cmnGrpc "github.com/oasisprotocol/oasis-core/go/common/grpc"
 	"github.com/oasisprotocol/oasis-core/go/common/quantity"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/crypto/signature"
@@ -12,7 +15,32 @@ import (
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/accounts"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/contracts"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/types"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
+
+// Connect establishes a connection with the target rpc endpoint, omitting the
+// chain context check.
+func Connect(rpc string) (*grpc.ClientConn, error) {
+	var dialOpts []grpc.DialOption
+	switch strings.HasPrefix(rpc, "unix:") {
+	case true:
+		// No TLS needed for local nodes.
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	case false:
+		// Configure TLS for non-local nodes.
+		creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
+	}
+
+	conn, err := cmnGrpc.Dial(rpc, dialOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return conn, nil
+}
 
 // SignAndSubmitTx signs and submits the given request.
 // TODO: Gas estimation is currently hardcoded.
@@ -28,9 +56,18 @@ func SignAndSubmitTx(ctx context.Context, rtc client.RuntimeClient, signer signa
 		return nil, err
 	}
 
+	// Educated guess for gas limit.
+	gasLimit := uint64(350_000)
+
+	// Add additional gas, if request is longer.
+	reqLen := uint64(len(cbor.Marshal(req)))
+	if reqLen > 130 {
+		gasLimit += (reqLen - 130) * 2700
+	}
+
 	tb := ct.Call(instanceID, req, []types.BaseUnits{}).
-		SetFeeGas(350_000).
-		SetFeeAmount(types.NewBaseUnits(*quantity.NewFromUint64(35_000_000), types.NativeDenomination)).
+		SetFeeGas(gasLimit).
+		SetFeeAmount(types.NewBaseUnits(*quantity.NewFromUint64(gasLimit * 100), types.NativeDenomination)).
 		AppendAuthSignature(sigSpec, nonce)
 
 	if err := tb.AppendSign(ctx, signer); err != nil {

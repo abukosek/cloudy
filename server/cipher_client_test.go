@@ -6,14 +6,11 @@ import (
 	"time"
 
 	"github.com/oasisprotocol/oasis-core/go/common"
-	cmnGrpc "github.com/oasisprotocol/oasis-core/go/common/grpc"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/contracts"
 	sdkTesting "github.com/oasisprotocol/oasis-sdk/client-sdk/go/testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
@@ -35,7 +32,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 	err := rtID.UnmarshalHex(testRuntimeID)
 	require.NoError(err, "runtime ID decoding should succeed")
 
-	conn, err := cmnGrpc.Dial(testSocket, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := Connect(testSocket)
 	require.NoError(err, "connection to testSocket should succeed")
 	defer conn.Close()
 
@@ -56,6 +53,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			Sensor: mySensor,
 		},
 	}
+
 	result, err := SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
 	require.NoError(err, "register_sensor should succeed")
 	require.NotEmpty(result.RegisterSensor, "result.register_sensor must not be empty")
@@ -125,6 +123,7 @@ func TestRegisterSensorSubmitMeasurementsAndQueryMax(t *testing.T) {
 			End:             1657550000,
 		},
 	}
+
 	result, err = SignAndSubmitTx(ctx, rtc, testSigner, req, testInstanceID)
 	require.NoError(err, "query avg should succeed")
 	require.Equal(int32(2350), result.Query.Value, "maximum temperature must match")

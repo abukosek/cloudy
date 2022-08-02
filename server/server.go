@@ -11,12 +11,9 @@ import (
 	"os"
 	"time"
 
-	cmnGrpc "github.com/oasisprotocol/oasis-core/go/common/grpc"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/crypto/signature"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/crypto/signature/ed25519"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,7 +55,7 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "*** Config contains %d sensor(s).\n", len(Cfg.Sensors))
 
-	conn, err := cmnGrpc.Dial(Cfg.Socket, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := Connect(Cfg.Socket)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Unable to connect to testSocket %s: %v\n", Cfg.Socket, err)
 		os.Exit(1)
